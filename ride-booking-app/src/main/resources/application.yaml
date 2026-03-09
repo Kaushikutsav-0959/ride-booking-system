@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: ride-booking-app
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ride_booking_app
+    username: utsav.kaushik@zomato.com
+    password:
+    driver-class-name: org.postgresql.Driver
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
