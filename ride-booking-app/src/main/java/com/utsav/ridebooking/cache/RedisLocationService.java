@@ -16,6 +16,7 @@ import org.springframework.data.geo.GeoResults;
 import org.springframework.data.redis.domain.geo.GeoReference;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 
 @Service
 public class RedisLocationService {
@@ -44,23 +45,42 @@ public class RedisLocationService {
     }
 
     public List<Long> fetchNearestDrivers(double pickupLat, double pickupLong, double radiusKm, int limit) {
-        GeoResults<RedisGeoCommands.GeoLocation<String>> results = stringRedisTemplate
-                .opsForGeo()
-                .search(DRIVER_GEO_KEY, GeoReference.fromCoordinate(new Point(pickupLong, pickupLat)),
-                        new Distance(radiusKm, Metrics.KILOMETERS),
-                        RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs().limit(limit));
 
-        List<Long> driverIds = new ArrayList<>();
-        if (results == null) {
-            return driverIds;
+        LinkedHashSet<Long> driverIds = new LinkedHashSet<>();
+
+        double step = 2.0; // expand search every 2 km
+        double currentRadius = step;
+
+        while (currentRadius <= radiusKm && driverIds.size() < limit) {
+
+            GeoResults<RedisGeoCommands.GeoLocation<String>> results = stringRedisTemplate
+                    .opsForGeo()
+                    .search(DRIVER_GEO_KEY,
+                            GeoReference.fromCoordinate(new Point(pickupLong, pickupLat)),
+                            new Distance(currentRadius, Metrics.KILOMETERS),
+                            RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs().limit(limit));
+
+            if (results == null) {
+                currentRadius += step;
+                continue;
+            }
+
+            results.forEach(r -> {
+                String member = r.getContent().getName();
+                Long driverId = Long.valueOf(member);
+
+                String heartbeatKey = buildHeartbeatKey(driverId);
+                Boolean alive = stringRedisTemplate.hasKey(heartbeatKey);
+
+                if (Boolean.TRUE.equals(alive)) {
+                    driverIds.add(driverId);
+                }
+            });
+
+            currentRadius += step;
         }
 
-        results.forEach(r -> {
-            String member = r.getContent().getName();
-            driverIds.add(Long.valueOf(member));
-        });
-
-        return driverIds;
+        return driverIds.stream().limit(limit).toList();
     }
 
     public void storeEligibleDrivers(Long rideId, List<Long> driverIds) {

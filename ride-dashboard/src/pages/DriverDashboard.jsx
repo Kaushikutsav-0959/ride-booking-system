@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import axios from "axios";
 
 export default function DriverDashboard() {
 
-    const [driverStatus, setDriverStatus] = useState("OFFLINE");
+    const [driverStatus, setDriverStatus] = useState(() => {
+        const savedStatus = localStorage.getItem("driverStatus");
+        return savedStatus ? savedStatus : "OFFLINE";
+    });
     const [currentRide, setCurrentRide] = useState(null);
 
     useEffect(() => {
@@ -18,6 +22,7 @@ export default function DriverDashboard() {
     const toggleDriverStatus = () => {
         const next = driverStatus === "ONLINE" ? "OFFLINE" : "ONLINE";
         setDriverStatus(next);
+        localStorage.setItem("driverStatus", next);
 
         // TODO: call backend
         // axios.put("/drivers/status", { status: next })
@@ -28,31 +33,79 @@ export default function DriverDashboard() {
         window.location.href = "/login";
     };
 
-    const acceptRide = () => {
+    const acceptRide = async () => {
         if (!currentRide) return;
 
-        console.log("Accept ride", currentRide.id);
+        try {
+            const token = localStorage.getItem("token");
 
-        // TODO: backend call
-        // axios.post(`/rides/${currentRide.id}/accept`)
+            await axios.post(`/rides/${currentRide.id}/accept`, {}, {
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            });
+
+            setCurrentRide(null);
+
+        } catch (err) {
+            console.error("Error accepting ride", err);
+        }
     };
 
-    const rejectRide = () => {
+    const rejectRide = async () => {
         if (!currentRide) return;
 
-        console.log("Reject ride", currentRide.id);
+        try {
+            const token = localStorage.getItem("token");
 
-        setCurrentRide(null);
+            await axios.post(`/rides/${currentRide.id}/reject`, {}, {
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            });
 
-        // TODO: backend call
-        // axios.post(`/rides/${currentRide.id}/reject`)
+            setCurrentRide(null);
+
+        } catch (err) {
+            console.error("Error rejecting ride", err);
+        }
     };
+
+    useEffect(() => {
+
+        if (driverStatus !== "ONLINE") return;
+
+        const interval = setInterval(async () => {
+            try {
+
+                const token = localStorage.getItem("token");
+
+                const res = await axios.get("/rides/driver/active", {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                });
+
+                if (res.data && res.data.id) {
+                    setCurrentRide(res.data);
+                } else {
+                    setCurrentRide(null);
+                }
+
+            } catch (err) {
+                console.error("Error fetching driver ride", err);
+            }
+        }, 3000);
+
+        return () => clearInterval(interval);
+
+    }, [driverStatus]);
 
     return (
-        <div className="h-screen flex flex-col bg-gray-900 text-gray-100">
+        <div className="flex flex-col h-screen text-gray-100 bg-gray-900">
 
             {/* HEADER */}
-            <header className="flex items-center justify-between px-6 py-4 border-b border-gray-700 bg-gray-800">
+            <header className="flex items-center justify-between px-6 py-4 bg-gray-800 border-b border-gray-700">
 
                 <h1 className="text-xl font-semibold">
                     Driver Dashboard
@@ -75,7 +128,7 @@ export default function DriverDashboard() {
                     {/* Logout */}
                     <button
                         onClick={handleLogout}
-                        className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded"
+                        className="px-4 py-2 bg-red-600 rounded hover:bg-red-700"
                     >
                         Logout
                     </button>
@@ -88,7 +141,7 @@ export default function DriverDashboard() {
             {/* MAIN */}
             {driverStatus === "OFFLINE" ? (
 
-                <main className="flex flex-1 items-center justify-center">
+                <main className="flex items-center justify-center flex-1">
                     <p className="text-lg text-gray-400">
                         Go online to accept rides.
                     </p>
@@ -96,7 +149,7 @@ export default function DriverDashboard() {
 
             ) : (
 
-                <main className="flex flex-col md:flex-row flex-1">
+                <main className="flex flex-col flex-1 md:flex-row">
 
                     {/* MAP */}
                     <div className="w-full md:w-2/3 h-[50%] md:h-full">
@@ -105,7 +158,7 @@ export default function DriverDashboard() {
                             center={[12.9, 77.6]}
                             zoom={13}
                             scrollWheelZoom={true}
-                            className="h-full w-full"
+                            className="w-full h-full"
                         >
                             <TileLayer
                                 attribution="&copy; OpenStreetMap contributors"
@@ -124,11 +177,11 @@ export default function DriverDashboard() {
 
 
                     {/* RIDE CARD */}
-                    <div className="w-full md:w-1/3 flex items-center justify-center p-6">
+                    <div className="flex items-center justify-center w-full p-6 md:w-1/3">
 
                         {currentRide ? (
 
-                            <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 w-full max-w-md shadow">
+                            <div className="w-full max-w-md p-6 bg-gray-800 border border-gray-700 shadow rounded-xl">
 
                                 <div className="flex items-center gap-2 mb-4">
                                     <span className="text-xl">👤</span>
@@ -163,14 +216,14 @@ export default function DriverDashboard() {
 
                                     <button
                                         onClick={acceptRide}
-                                        className="flex-1 bg-green-600 hover:bg-green-700 py-2 rounded"
+                                        className="flex-1 py-2 bg-green-600 rounded hover:bg-green-700"
                                     >
                                         Accept
                                     </button>
 
                                     <button
                                         onClick={rejectRide}
-                                        className="flex-1 bg-red-600 hover:bg-red-700 py-2 rounded"
+                                        className="flex-1 py-2 bg-red-600 rounded hover:bg-red-700"
                                     >
                                         Reject
                                     </button>

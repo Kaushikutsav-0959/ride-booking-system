@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.EnumSet;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,32 +14,43 @@ import com.utsav.ridebooking.models.Ride;
 import com.utsav.ridebooking.models.User;
 import com.utsav.ridebooking.DTO.RideRequest;
 import com.utsav.ridebooking.cache.RedisLocationService;
-import com.utsav.ridebooking.config.KafkaTopics;
 import com.utsav.ridebooking.events.RideEvent;
 import com.utsav.ridebooking.models.Driver;
 import com.utsav.ridebooking.models.RideStatus;
 import com.utsav.ridebooking.models.DriverStatus;
+import com.utsav.ridebooking.models.OutboxEvent;
 import com.utsav.ridebooking.repository.DriverRepository;
 import com.utsav.ridebooking.repository.RideRepository;
 import com.utsav.ridebooking.repository.UserRepository;
+import com.utsav.ridebooking.repository.OutboxRepository;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class RideService {
 
+    private static final Logger log = LoggerFactory.getLogger(RideService.class);
+
     private final RideRepository rideRepository;
     private final DriverRepository driverRepository;
     private final UserRepository userRepository;
+    private final OutboxRepository outboxRepository;
     private final RedisLocationService redisLocationService;
-    private final RideEventPublisher rideEventPublisher;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public RideService(RideRepository rideRepository, DriverRepository driverRepository,
-            UserRepository userRepository, RedisLocationService redisLocationService,
-            RideEventPublisher rideEventPublisher) {
+    public RideService(
+            RideRepository rideRepository,
+            DriverRepository driverRepository,
+            UserRepository userRepository,
+            RedisLocationService redisLocationService,
+            OutboxRepository outboxRepository) {
+
         this.rideRepository = rideRepository;
         this.driverRepository = driverRepository;
         this.userRepository = userRepository;
         this.redisLocationService = redisLocationService;
-        this.rideEventPublisher = rideEventPublisher;
+        this.outboxRepository = outboxRepository;
     }
 
     @Transactional
@@ -53,11 +65,12 @@ public class RideService {
                 .orElseThrow(() -> new RuntimeException("User with this email doesn't exist."));
         ride.setCustomerId(user.getUserId());
         ride.setRideStatus(RideStatus.REQUESTED);
+        ride.setUpdatedAt(LocalDateTime.now());
         ride.setPickupLat(rideRequest.getPickupLat());
         ride.setPickupLong(rideRequest.getPickupLong());
         ride.setDropLat(rideRequest.getDropLat());
         ride.setDropLong(rideRequest.getDropLong());
-        System.out.println("PickupLat = " + rideRequest.getPickupLat());
+        log.info("Creating ride with pickupLat={}", rideRequest.getPickupLat());
         Ride savedRide = rideRepository.save(ride);
         publishRide(savedRide.getId());
         return savedRide;
@@ -101,7 +114,7 @@ public class RideService {
         }
 
         redisLocationService.storeEligibleDrivers(rideId, eligibleDriverIds);
-        System.out.println("Eligible drivers = " + eligibleDriverIds);
+        log.info("Eligible drivers for ride {} = {}", rideId, eligibleDriverIds);
         if (eligibleDriverIds.isEmpty()) {
             throw new RuntimeException("No eligible drivers available.");
         }
@@ -113,11 +126,25 @@ public class RideService {
         event.setTimestamp(System.currentTimeMillis());
         event.setEventType("RIDE_REQUESTED");
 
-        rideEventPublisher.publish(KafkaTopics.RIDE_EVENTS, event);
+        OutboxEvent outbox = new OutboxEvent();
+        outbox.setAggregateType("RIDE");
+        outbox.setAggregateId(unassignedRide.getId());
+        outbox.setEventType("RIDE_REQUESTED");
 
-        System.out.println("Ride " + rideId + " published to " + eligibleDriverIds.size() + " drivers");
+        try {
+            outbox.setPayload(objectMapper.writeValueAsString(event));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize RideEvent for outbox", e);
+        }
+
+        outbox.setCreatedAt(LocalDateTime.now());
+        outboxRepository.save(outbox);
+
+        unassignedRide.setUpdatedAt(LocalDateTime.now());
+
+        log.info("Ride {} published to {} drivers", rideId, eligibleDriverIds.size());
         for (Long driver : eligibleDriverIds) {
-            System.out.println(driver);
+            log.debug("Eligible driverId={}", driver);
         }
         return unassignedRide;
     }
@@ -142,16 +169,16 @@ public class RideService {
     @Transactional
     public Ride acceptRide(Long rideId, Long driverId) {
 
-        System.out.println("ACCEPT ATTEMPT: ride=" + rideId + " driver=" + driverId);
+        log.info("Accept attempt rideId={} driverId={}", rideId, driverId);
 
         Ride ride = rideRepository.findWithLockById(rideId)
                 .orElseThrow(() -> new RuntimeException("Ride not found."));
 
-        System.out.println("CURRENT RIDE STATUS: " + ride.getRideStatus());
+        log.debug("Current ride status for rideId={} status={}", rideId, ride.getRideStatus());
 
         List<Long> eligibleDrivers = redisLocationService.getEligibleDrivers(rideId);
 
-        System.out.println("ELIGIBLE DRIVERS: " + eligibleDrivers);
+        log.debug("Eligible drivers for rideId={} drivers={}", rideId, eligibleDrivers);
 
         if (!eligibleDrivers.contains(driverId)) {
             throw new RuntimeException("Driver not eligible for this ride.");
@@ -170,11 +197,12 @@ public class RideService {
 
         ride.setDriverId(driverId);
         ride.setRideStatus(RideStatus.ASSIGNED);
+        ride.setUpdatedAt(LocalDateTime.now());
         ride.setAcceptedAt(LocalDateTime.now());
         driver.setDriverStatus(DriverStatus.ON_RIDE);
         driverRepository.save(driver);
 
-        System.out.println("RIDE ACCEPTED: ride=" + rideId + " driver=" + driverId);
+        log.info("Ride accepted rideId={} driverId={}", rideId, driverId);
 
         redisLocationService.clearEligibleDrivers(rideId);
 
@@ -187,8 +215,20 @@ public class RideService {
         event.setTimestamp(System.currentTimeMillis());
         event.setEventType("RIDE_ACCEPTED");
 
-        rideEventPublisher.publish(KafkaTopics.RIDE_EVENTS, event);
+        OutboxEvent outbox = new OutboxEvent();
+        outbox.setAggregateType("RIDE");
+        outbox.setAggregateId(ride.getId());
+        outbox.setEventType("RIDE_ACCEPTED");
 
+        try {
+            outbox.setPayload(objectMapper.writeValueAsString(event));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize RideEvent for outbox", e);
+        }
+
+        outbox.setCreatedAt(LocalDateTime.now());
+
+        outboxRepository.save(outbox);
         return ride;
     }
 
@@ -220,17 +260,30 @@ public class RideService {
         }
 
         redisLocationService.clearEligibleDriver(rideId, driverId);
+        ride.setUpdatedAt(LocalDateTime.now());
         rideRepository.save(ride);
         driverRepository.save(driver);
 
         RideEvent event = new RideEvent();
         event.setRideId(ride.getId());
         event.setCustomerId(ride.getCustomerId());
-        event.setDriverId(ride.getDriverId());
+        event.setDriverId(driverId);
         event.setTimestamp(System.currentTimeMillis());
         event.setEventType("RIDE_REJECTED");
 
-        rideEventPublisher.publish(KafkaTopics.RIDE_EVENTS, event);
+        OutboxEvent outbox = new OutboxEvent();
+        outbox.setAggregateType("RIDE");
+        outbox.setAggregateId(ride.getId());
+        outbox.setEventType("RIDE_REJECTED");
+
+        try {
+            outbox.setPayload(objectMapper.writeValueAsString(event));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize RideEvent for outbox", e);
+        }
+
+        outbox.setCreatedAt(LocalDateTime.now());
+        outboxRepository.save(outbox);
 
         return ride;
     }
@@ -243,6 +296,7 @@ public class RideService {
                 .orElseThrow(() -> new RuntimeException("Driver wasn't found."));
         driver.setDriverStatus(DriverStatus.ONLINE);
         driverRepository.save(driver);
+        ride.setUpdatedAt(LocalDateTime.now());
         rideRepository.save(ride);
 
         RideEvent event = new RideEvent();
@@ -252,7 +306,19 @@ public class RideService {
         event.setTimestamp(System.currentTimeMillis());
         event.setEventType("RIDE_COMPLETED");
 
-        rideEventPublisher.publish(KafkaTopics.RIDE_EVENTS, event);
+        OutboxEvent outbox = new OutboxEvent();
+        outbox.setAggregateType("RIDE");
+        outbox.setAggregateId(ride.getId());
+        outbox.setEventType("RIDE_COMPLETED");
+
+        try {
+            outbox.setPayload(objectMapper.writeValueAsString(event));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize RideEvent for outbox", e);
+        }
+
+        outbox.setCreatedAt(LocalDateTime.now());
+        outboxRepository.save(outbox);
 
         return ride;
     }
@@ -271,6 +337,7 @@ public class RideService {
         }
         ride.setRideStatus(RideStatus.IN_PROGRESS);
         driverRepository.save(driver);
+        ride.setUpdatedAt(LocalDateTime.now());
         return rideRepository.save(ride);
     }
 
@@ -287,6 +354,7 @@ public class RideService {
         }
 
         ride.setRideStatus(RideStatus.ARRIVED_AT_PICKUP);
+        ride.setUpdatedAt(LocalDateTime.now());
 
         return rideRepository.save(ride);
     }
@@ -311,6 +379,7 @@ public class RideService {
 
         ride.setRideStatus(RideStatus.CANCELLED);
         redisLocationService.clearEligibleDrivers(rideId);
+        ride.setUpdatedAt(LocalDateTime.now());
         return rideRepository.save(ride);
     }
 }

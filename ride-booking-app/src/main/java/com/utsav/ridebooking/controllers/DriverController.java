@@ -33,7 +33,7 @@ public class DriverController {
     }
 
     @PatchMapping("/location")
-    public ResponseEntity<Driver> updateDriverLocation(@RequestBody DriverLocationUpdateRequest request) {
+    public ResponseEntity<Void> updateDriverLocation(@RequestBody DriverLocationUpdateRequest request) {
         driverService.updateDriverLocation(request);
         return ResponseEntity.ok().build();
     }
