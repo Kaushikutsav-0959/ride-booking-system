@@ -72,6 +72,7 @@ public class RideService {
         ride.setDropLong(rideRequest.getDropLong());
         log.info("Creating ride with pickupLat={}", rideRequest.getPickupLat());
         Ride savedRide = rideRepository.save(ride);
+        log.info("METRIC ride.created rideId={} customerId={}", savedRide.getId(), user.getUserId());
         publishRide(savedRide.getId());
         return savedRide;
     }
@@ -86,6 +87,7 @@ public class RideService {
             throw new RuntimeException("Illegal state attachment.");
         }
 
+        long dispatchStart = System.currentTimeMillis();
         double radius = 2.0;
 
         List<Long> nearbyDriverIds = redisLocationService.fetchNearestDrivers(unassignedRide.getPickupLat(),
@@ -112,7 +114,9 @@ public class RideService {
             }
             eligibleDriverIds.add(driver.getDriverId());
         }
-
+        long dispatchLatency = System.currentTimeMillis() - dispatchStart;
+        log.info("METRIC dispatch.search.latencyMs={} rideId={} driversFound={}",
+                dispatchLatency, rideId, nearbyDriverIds.size());
         redisLocationService.storeEligibleDrivers(rideId, eligibleDriverIds);
         log.info("Eligible drivers for ride {} = {}", rideId, eligibleDriverIds);
         if (eligibleDriverIds.isEmpty()) {
@@ -170,6 +174,7 @@ public class RideService {
     public Ride acceptRide(Long rideId, Long driverId) {
 
         log.info("Accept attempt rideId={} driverId={}", rideId, driverId);
+        log.info("METRIC ride.accept.attempt rideId={} driverId={}", rideId, driverId);
 
         Ride ride = rideRepository.findWithLockById(rideId)
                 .orElseThrow(() -> new RuntimeException("Ride not found."));
@@ -209,6 +214,7 @@ public class RideService {
         driverRepository.save(driver);
 
         log.info("Ride accepted rideId={} driverId={}", rideId, driverId);
+        log.info("METRIC ride.accept.success rideId={} driverId={}", rideId, driverId);
 
         redisLocationService.clearEligibleDrivers(rideId);
 
@@ -242,6 +248,7 @@ public class RideService {
     public Ride rejectRide(Long rideId, Long driverId) {
         Ride ride = rideRepository.findWithLockById(rideId)
                 .orElseThrow(() -> new RuntimeException("Ride not found."));
+        log.info("METRIC ride.reject.attempt rideId={} driverId={}", rideId, driverId);
 
         if (ride.getRideStatus() == RideStatus.IN_PROGRESS) {
             throw new RuntimeException("Invalid state transition.");
@@ -299,6 +306,7 @@ public class RideService {
     public Ride completeRide(Long rideId) {
         Ride ride = rideRepository.findById(rideId).orElseThrow(() -> new RuntimeException("Ride not found."));
         ride.setRideStatus(RideStatus.COMPLETED);
+        log.info("METRIC ride.completed rideId={} driverId={}", rideId, ride.getDriverId());
         Driver driver = driverRepository.findById(ride.getDriverId())
                 .orElseThrow(() -> new RuntimeException("Driver wasn't found."));
         driver.setDriverStatus(DriverStatus.ONLINE);
@@ -333,6 +341,7 @@ public class RideService {
 
     @Transactional
     public Ride startRide(Long rideId, Long driverId) {
+        log.info("METRIC ride.start.attempt rideId={} driverId={}", rideId, driverId);
         Ride ride = rideRepository.findById(rideId)
                 .orElseThrow(() -> new RuntimeException("Ride couldn't be found."));
         if (ride.getRideStatus() != RideStatus.ASSIGNED) {
@@ -344,6 +353,7 @@ public class RideService {
             throw new RuntimeException("Illegal state transition and illegal driver entity.");
         }
         ride.setRideStatus(RideStatus.IN_PROGRESS);
+        log.info("METRIC ride.start.success rideId={} driverId={}", rideId, driverId);
         driverRepository.save(driver);
         ride.setUpdatedAt(LocalDateTime.now());
         return rideRepository.save(ride);
@@ -362,6 +372,7 @@ public class RideService {
         }
 
         ride.setRideStatus(RideStatus.ARRIVED_AT_PICKUP);
+        log.info("METRIC ride.arrived_pickup rideId={} driverId={}", rideId, driverId);
         ride.setUpdatedAt(LocalDateTime.now());
 
         return rideRepository.save(ride);
@@ -370,6 +381,7 @@ public class RideService {
     @Transactional
     public Ride cancelRide(Long rideId) {
         Ride ride = rideRepository.findById(rideId).orElseThrow(() -> new RuntimeException("Ride was not found."));
+        log.info("METRIC ride.cancel.attempt rideId={}", rideId);
 
         if (ride.getRideStatus() == RideStatus.IN_PROGRESS || ride.getRideStatus() == RideStatus.COMPLETED) {
             throw new RuntimeException("Ride cannot be cancelled at this stage.");
@@ -386,6 +398,7 @@ public class RideService {
         }
 
         ride.setRideStatus(RideStatus.CANCELLED);
+        log.info("METRIC ride.cancel.success rideId={}", rideId);
         redisLocationService.clearEligibleDrivers(rideId);
         redisLocationService.clearRideClaim(rideId);
         ride.setUpdatedAt(LocalDateTime.now());
