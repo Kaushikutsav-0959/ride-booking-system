@@ -28,6 +28,8 @@ public class RedisLocationService {
     private static final String ELIGIBLE_DRIVERS_TEMPLATE = "ride:{rideId}:candidates";
     private static final long RIDE_ACCEPTANCE_TIMER = 60;
     private static final String RIDE_REQUEST_CHANNEL = "ride:requests";
+    private static final String RIDE_CLAIM_KEY_TEMPLATE = "ride:{rideId}:claimed";
+    private static final long RIDE_CLAIM_TTL_SECONDS = 30;
 
     public RedisLocationService(StringRedisTemplate stringRedisTemplate) {
         this.stringRedisTemplate = stringRedisTemplate;
@@ -38,49 +40,88 @@ public class RedisLocationService {
     }
 
     public void saveDriverLocation(Long driverId, double lat, double lon) {
+
         stringRedisTemplate.opsForGeo().add(DRIVER_GEO_KEY, new Point(lon, lat), driverId.toString());
+
         String heartbeatKey = buildHeartbeatKey(driverId);
-        stringRedisTemplate.opsForValue().set(heartbeatKey, "alive", HEARTBEAT_TTL_SECONDS,
-                java.util.concurrent.TimeUnit.SECONDS);
+        stringRedisTemplate.opsForValue().set(
+                heartbeatKey,
+                "alive",
+                HEARTBEAT_TTL_SECONDS,
+                TimeUnit.SECONDS);
     }
 
-    public List<Long> fetchNearestDrivers(double pickupLat, double pickupLong, double radiusKm, int limit) {
+    public void refreshDriverHeartbeat(Long driverId) {
+        String heartbeatKey = buildHeartbeatKey(driverId);
+
+        stringRedisTemplate.opsForValue().set(
+                heartbeatKey,
+                "alive",
+                HEARTBEAT_TTL_SECONDS,
+                TimeUnit.SECONDS);
+    }
+
+    public List<Long> fetchNearestDrivers(double pickupLat, double pickupLong, double radiusKm) {
 
         LinkedHashSet<Long> driverIds = new LinkedHashSet<>();
+        LinkedHashSet<Long> geoMatchedDrivers = new LinkedHashSet<>();
 
-        double step = 2.0; // expand search every 2 km
+        double step = 2.0;
         double currentRadius = step;
 
-        while (currentRadius <= radiusKm && driverIds.size() < limit) {
+        while (currentRadius <= radiusKm) {
 
             GeoResults<RedisGeoCommands.GeoLocation<String>> results = stringRedisTemplate
                     .opsForGeo()
                     .search(DRIVER_GEO_KEY,
                             GeoReference.fromCoordinate(new Point(pickupLong, pickupLat)),
                             new Distance(currentRadius, Metrics.KILOMETERS),
-                            RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs().limit(limit));
+                            RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs());
 
             if (results == null) {
                 currentRadius += step;
                 continue;
             }
 
+            java.util.List<Long> radiusDriverIds = new java.util.ArrayList<>();
+
             results.forEach(r -> {
                 String member = r.getContent().getName();
                 Long driverId = Long.valueOf(member);
-
-                String heartbeatKey = buildHeartbeatKey(driverId);
-                Boolean alive = stringRedisTemplate.hasKey(heartbeatKey);
-
-                if (Boolean.TRUE.equals(alive)) {
-                    driverIds.add(driverId);
-                }
+                geoMatchedDrivers.add(driverId);
+                radiusDriverIds.add(driverId);
             });
+
+            java.util.List<String> heartbeatKeys = radiusDriverIds.stream()
+                    .map(this::buildHeartbeatKey)
+                    .toList();
+
+            java.util.List<String> heartbeats = stringRedisTemplate.opsForValue().multiGet(heartbeatKeys);
+
+            for (int i = 0; i < radiusDriverIds.size(); i++) {
+                if (heartbeats != null && heartbeats.get(i) != null) {
+                    driverIds.add(radiusDriverIds.get(i));
+                }
+            }
+
+            if (!driverIds.isEmpty()) {
+                break;
+            }
 
             currentRadius += step;
         }
 
-        return driverIds.stream().limit(limit).toList();
+        java.util.List<Long> result;
+
+        if (driverIds.isEmpty()) {
+            result = new java.util.ArrayList<>(geoMatchedDrivers);
+        } else {
+            result = new java.util.ArrayList<>(driverIds);
+        }
+
+        java.util.Collections.shuffle(result);
+
+        return result;
     }
 
     public void storeEligibleDrivers(Long rideId, List<Long> driverIds) {
@@ -136,6 +177,23 @@ public class RedisLocationService {
     public void clearEligibleDriver(Long rideId, Long driverId) {
         String rideKey = ELIGIBLE_DRIVERS_TEMPLATE.replace("{rideId}", rideId.toString());
         stringRedisTemplate.opsForSet().remove(rideKey, driverId.toString());
+    }
+
+    public boolean tryClaimRide(Long rideId, Long driverId) {
+        String claimKey = RIDE_CLAIM_KEY_TEMPLATE.replace("{rideId}", rideId.toString());
+
+        Boolean success = stringRedisTemplate.opsForValue().setIfAbsent(
+                claimKey,
+                driverId.toString(),
+                RIDE_CLAIM_TTL_SECONDS,
+                TimeUnit.SECONDS);
+
+        return Boolean.TRUE.equals(success);
+    }
+
+    public void clearRideClaim(Long rideId) {
+        String claimKey = RIDE_CLAIM_KEY_TEMPLATE.replace("{rideId}", rideId.toString());
+        stringRedisTemplate.delete(claimKey);
     }
 
     public Map<Long, Point> fetchDriverLocations(List<Long> driverIds) {

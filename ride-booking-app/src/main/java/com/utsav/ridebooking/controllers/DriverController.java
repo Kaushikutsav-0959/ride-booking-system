@@ -3,7 +3,6 @@ package com.utsav.ridebooking.controllers;
 import com.utsav.ridebooking.DTO.DriverLocationUpdateRequest;
 import com.utsav.ridebooking.models.Driver;
 import com.utsav.ridebooking.models.DriverStatus;
-import com.utsav.ridebooking.services.RideService;
 import com.utsav.ridebooking.services.DriverService;
 
 import org.springframework.http.ResponseEntity;
@@ -16,7 +15,7 @@ import java.util.List;
 public class DriverController {
     private final DriverService driverService;
 
-    public DriverController(DriverService driverService, RideService rideService) {
+    public DriverController(DriverService driverService) {
         this.driverService = driverService;
     }
 
@@ -33,14 +32,14 @@ public class DriverController {
     }
 
     @PatchMapping("/location")
-    public ResponseEntity<Void> updateDriverLocation(@RequestBody DriverLocationUpdateRequest request) {
+    public ResponseEntity<Driver> updateDriverLocation(@RequestBody DriverLocationUpdateRequest request) {
         driverService.updateDriverLocation(request);
         return ResponseEntity.ok().build();
     }
 
     @GetMapping("/nearby")
-    public ResponseEntity<?> getNearbyDrivers(
-            @RequestParam double lat, @RequestParam("long") double lng) {
+    public ResponseEntity<?> findNearbyDrivers(
+            @RequestParam double lat, @RequestParam double lng) {
         return ResponseEntity.ok(driverService.findNearbyDrivers(lat, lng));
     }
 }

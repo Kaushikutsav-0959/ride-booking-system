@@ -12,8 +12,6 @@ export default function DriverDashboard() {
 
     useEffect(() => {
         const token = localStorage.getItem("token");
-
-        // If no token is present, redirect to login
         if (!token) {
             window.location.href = "/login";
         }
@@ -86,7 +84,7 @@ export default function DriverDashboard() {
                     }
                 });
 
-                if (res.data && res.data.id) {
+                if (res.data && res.data.id && res.data.rideStatus === "REQUESTED") {
                     setCurrentRide(res.data);
                 } else {
                     setCurrentRide(null);
@@ -95,7 +93,7 @@ export default function DriverDashboard() {
             } catch (err) {
                 console.error("Error fetching driver ride", err);
             }
-        }, 3000);
+        }, 2000);
 
         return () => clearInterval(interval);
 
@@ -177,11 +175,11 @@ export default function DriverDashboard() {
 
 
                     {/* RIDE CARD */}
-                    <div className="flex items-center justify-center w-full p-6 md:w-1/3">
+                    <div className="flex items-center justify-center w-full p-6 overflow-hidden md:w-1/3">
 
                         {currentRide ? (
 
-                            <div className="w-full max-w-md p-6 bg-gray-800 border border-gray-700 shadow rounded-xl">
+                            <div className="w-full max-w-md p-6 transition-all duration-300 ease-out transform translate-x-0 bg-gray-800 border border-gray-700 shadow opacity-100 rounded-xl">
 
                                 <div className="flex items-center gap-2 mb-4">
                                     <span className="text-xl">👤</span>
@@ -234,7 +232,7 @@ export default function DriverDashboard() {
 
                         ) : (
 
-                            <div className="text-center text-gray-400">
+                            <div className="text-center text-gray-400 transition-all duration-300 ease-out transform translate-x-4 opacity-70">
                                 Waiting for ride requests...
                             </div>
 

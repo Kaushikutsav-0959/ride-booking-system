@@ -90,13 +90,13 @@ public class RideService {
 
         List<Long> nearbyDriverIds = redisLocationService.fetchNearestDrivers(unassignedRide.getPickupLat(),
                 unassignedRide.getPickupLong(),
-                radius, 10);
+                radius);
 
         while (nearbyDriverIds.isEmpty() && radius < 9) {
             radius += 2;
             nearbyDriverIds = redisLocationService.fetchNearestDrivers(unassignedRide.getPickupLat(),
                     unassignedRide.getPickupLong(),
-                    radius, 10);
+                    radius);
         }
 
         List<Long> eligibleDriverIds = new ArrayList<>();
@@ -184,6 +184,12 @@ public class RideService {
             throw new RuntimeException("Driver not eligible for this ride.");
         }
 
+        // Redis race-condition guard: ensure only one driver can claim the ride
+        boolean claimed = redisLocationService.tryClaimRide(rideId, driverId);
+        if (!claimed) {
+            throw new RuntimeException("Ride already claimed by another driver.");
+        }
+
         Driver driver = driverRepository.findWithLockByDriverId(driverId)
                 .orElseThrow(() -> new RuntimeException("Driver not found."));
 
@@ -256,6 +262,7 @@ public class RideService {
             }
             driver.setDriverStatus(DriverStatus.ONLINE);
             ride.setRideStatus(RideStatus.REQUESTED);
+            redisLocationService.clearRideClaim(rideId);
             publishRide(rideId);
         }
 
@@ -296,6 +303,7 @@ public class RideService {
                 .orElseThrow(() -> new RuntimeException("Driver wasn't found."));
         driver.setDriverStatus(DriverStatus.ONLINE);
         driverRepository.save(driver);
+        redisLocationService.clearRideClaim(rideId);
         ride.setUpdatedAt(LocalDateTime.now());
         rideRepository.save(ride);
 
@@ -379,6 +387,7 @@ public class RideService {
 
         ride.setRideStatus(RideStatus.CANCELLED);
         redisLocationService.clearEligibleDrivers(rideId);
+        redisLocationService.clearRideClaim(rideId);
         ride.setUpdatedAt(LocalDateTime.now());
         return rideRepository.save(ride);
     }

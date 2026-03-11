@@ -3,6 +3,9 @@ package com.utsav.ridebooking.models;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 @Entity
 @Table(name = "outbox_events")
 public class OutboxEvent {
@@ -15,6 +18,7 @@ public class OutboxEvent {
     private Long aggregateId;
     private String eventType;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private String payload;
 

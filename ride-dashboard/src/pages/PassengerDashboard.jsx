@@ -93,7 +93,7 @@ export default function PassengerDashboard() {
 
         const interval = setInterval(() => {
 
-            axios.get(`http://localhost:8080/drivers/nearby?lat=${pickupLat}&long=${pickupLong}`, {
+            axios.get(`http://localhost:8080/drivers/nearby?lat=${pickupLat}&lng=${pickupLong}`, {
 
                 headers: { Authorization: `Bearer ${token}` }
 
@@ -176,11 +176,11 @@ export default function PassengerDashboard() {
 
 
     return (
-        <div className="h-screen flex flex-col bg-gray-900 text-gray-100">
+        <div className="flex flex-col h-screen text-gray-100 bg-gray-900">
             <header className="h-[10%] flex items-center justify-between px-6 border-b border-gray-700 bg-gray-800">
                 <h1 className="text-xl font-bold">Ride Booking</h1>
                 <button
-                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+                    className="px-4 py-2 text-white bg-red-600 rounded hover:bg-red-700"
                     onClick={handleLogout}
                 >
                     Logout
@@ -188,7 +188,7 @@ export default function PassengerDashboard() {
             </header>
 
             <main className="relative h-[80%] flex flex-col md:flex-row items-center md:items-stretch">
-                <div className="w-full md:w-1/2 flex-1 md:h-full">
+                <div className="flex-1 w-full md:w-1/2 md:h-full">
                     <MapContainer
                         center={pickupLat && pickupLong ? [parseFloat(pickupLat), parseFloat(pickupLong)] : [12.9, 77.6]}
                         zoom={13}
@@ -253,18 +253,18 @@ export default function PassengerDashboard() {
                 `}
                 >
                     <div
-                        className="w-full flex flex-col items-center gap-2 mb-2 cursor-pointer md:hidden pb-2 border-b border-gray-700"
+                        className="flex flex-col items-center w-full gap-2 pb-2 mb-2 border-b border-gray-700 cursor-pointer md:hidden"
                         onClick={() => setSheetOpen(!sheetOpen)}
                     >
                         <div className="w-12 h-1.5 bg-gray-600 rounded-full"></div>
                         <button
                             type="button"
-                            className="text-gray-400 text-sm flex items-center gap-1"
+                            className="flex items-center gap-1 text-sm text-gray-400"
                         >
                             {sheetOpen ? "▼ Hide ride panel" : "▲ Show ride panel"}
                         </button>
                     </div>
-                <div className="mt-4 p-4 border border-gray-700 rounded bg-gray-800 w-full max-w-md">
+                <div className="w-full max-w-md p-4 mt-4 bg-gray-800 border border-gray-700 rounded">
                     <p className="font-semibold">Ride Status</p>
 
                     {!rideStatus && (
@@ -272,13 +272,13 @@ export default function PassengerDashboard() {
                     )}
 
                     {rideStatus === "REQUESTED" && (
-                        <p className="text-yellow-600 font-medium">
+                        <p className="font-medium text-yellow-600">
                             Ride requested — finding you a driver...
                         </p>
                     )}
 
                     {rideStatus && rideStatus !== "REQUESTED" && (
-                        <p className="text-gray-800 font-medium">{rideStatus}</p>
+                        <p className="font-medium text-gray-800">{rideStatus}</p>
                     )}
                 </div>
                     <h2 className="text-2xl font-semibold">Request a ride</h2>
@@ -292,14 +292,14 @@ export default function PassengerDashboard() {
                                 setPickupQuery(e.target.value);
                                 searchLocation(e.target.value, setPickupSuggestions);
                             }}
-                            className="border border-gray-600 bg-gray-800 text-gray-100 p-2 rounded w-full max-w-md"
+                            className="w-full max-w-md p-2 text-gray-100 bg-gray-800 border border-gray-600 rounded"
                         />
                         {pickupSuggestions.length > 0 && (
-                            <ul className="absolute z-10 w-full max-w-md border border-gray-700 rounded bg-gray-800 text-gray-100 max-h-40 overflow-y-auto shadow-lg">
+                            <ul className="absolute z-10 w-full max-w-md overflow-y-auto text-gray-100 bg-gray-800 border border-gray-700 rounded shadow-lg max-h-40">
                                 {pickupSuggestions.map((place, index) => (
                                     <li
                                         key={index}
-                                        className="p-2 hover:bg-gray-700 cursor-pointer"
+                                        className="p-2 cursor-pointer hover:bg-gray-700"
                                         onClick={() => {
                                             setPickupLat(place.lat);
                                             setPickupLong(place.lon);
@@ -323,14 +323,14 @@ export default function PassengerDashboard() {
                                 setDropQuery(e.target.value);
                                 searchLocation(e.target.value, setDropSuggestions);
                             }}
-                            className="border border-gray-600 bg-gray-800 text-gray-100 p-2 rounded w-full max-w-md"
+                            className="w-full max-w-md p-2 text-gray-100 bg-gray-800 border border-gray-600 rounded"
                         />
                         {dropSuggestions.length > 0 && (
-                            <ul className="absolute z-10 w-full max-w-md border border-gray-700 rounded bg-gray-800 text-gray-100 max-h-40 overflow-y-auto shadow-lg">
+                            <ul className="absolute z-10 w-full max-w-md overflow-y-auto text-gray-100 bg-gray-800 border border-gray-700 rounded shadow-lg max-h-40">
                                 {dropSuggestions.map((place, index) => (
                                     <li
                                         key={index}
-                                        className="p-2 hover:bg-gray-700 cursor-pointer"
+                                        className="p-2 cursor-pointer hover:bg-gray-700"
                                         onClick={() => {
                                             setDropLat(place.lat);
                                             setDropLong(place.lon);
@@ -344,12 +344,12 @@ export default function PassengerDashboard() {
                             </ul>
                         )}
                     </div>
-                    <p className="text-sm text-gray-500 mb-4">Drop coordinates will be fetched automatically.</p>
+                    <p className="mb-4 text-sm text-gray-500">Drop coordinates will be fetched automatically.</p>
 
                     {rideStatus === "REQUESTED" ? (
                         <button
                             type="button"
-                            className="bg-red-500 text-white px-4 py-2 rounded w-full max-w-md mt-8 mb-2"
+                            className="w-full max-w-md px-4 py-2 mt-8 mb-2 text-white bg-red-500 rounded"
                             onClick={() => handleCancelRide()}
                         >
                             Cancel Ride Request
@@ -370,7 +370,7 @@ export default function PassengerDashboard() {
 
                     {rideId && (
                         <div
-                            className="mt-4 p-4 border border-gray-700 rounded bg-gray-800 w-full max-w-md"
+                            className="w-full max-w-md p-4 mt-4 bg-gray-800 border border-gray-700 rounded"
                         >
                             <p className="font-semibold">Ride Created</p>
                             <p>Ride ID: {rideId}</p>

@@ -83,6 +83,11 @@ public class DriverService {
                 driver.getCurrentLat(),
                 driver.getCurrentLong());
 
+        if (driver.getDriverStatus() == DriverStatus.ONLINE
+                || driver.getDriverStatus() == DriverStatus.ON_RIDE) {
+            redisLocationService.refreshDriverHeartbeat(driver.getDriverId());
+        }
+
         Map<String, Object> payload = new HashMap<>();
         payload.put("driverId", driver.getDriverId());
         payload.put("lat", driver.getCurrentLat());
@@ -104,11 +109,12 @@ public class DriverService {
     }
 
     public List<DriverLocationResponse> findNearbyDrivers(double lat, double lng) {
-        double radiusKm = 5.0;
-        int limit = 20;
+        double radiusKm = 8.0;
 
-        List<Long> driverIds = redisLocationService.fetchNearestDrivers(lat, lng, radiusKm, limit);
+        List<Long> driverIds = redisLocationService.fetchNearestDrivers(lat, lng, radiusKm);
+        log.info("Nearby driver IDs from Redis for lat={}, lng={}, radiusKm={} -> {}", lat, lng, radiusKm, driverIds);
         List<Driver> drivers = driverRepository.findAllById(driverIds);
+        log.info("Drivers fetched from DB for nearby search: {}", drivers.stream().map(Driver::getDriverId).toList());
 
         return drivers.stream()
                 .map(driver -> new DriverLocationResponse(
