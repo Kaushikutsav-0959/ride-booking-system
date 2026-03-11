@@ -6,15 +6,20 @@ The system simulates passengers requesting rides and drivers accepting them usin
 
 ---
 
-## Architecture
+## Architecture (System Design Overview)
 
 Passenger requests a ride → Ride Service publishes event → Kafka → Driver dispatch → Driver accepts ride.
 
 ```
-Passenger → Ride Service → Kafka → Driver Dispatch → Driver Dashboard
-                 │
-                 ▼
-              Redis GEO
+Passenger → Ride API → Postgres
+                ↓
+           Outbox Table
+                ↓
+         Kafka Event Stream
+                ↓
+      Redis GEO Driver Discovery
+                ↓
+        Driver Assignment Flow
 ```
 
 Redis is used for fast driver proximity search.
