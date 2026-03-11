@@ -15,9 +15,21 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: false
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+
+logging:
+  level:
+    org:
+      hibernate: ERROR
+      springframework:
+        root: ERROR
+        web: ERROR
+        security: ERROR
+      apache:
+        catalina: ERROR
+        tomcat: ERROR
