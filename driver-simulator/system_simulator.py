@@ -143,11 +143,37 @@ def driver_location_worker(driver):
             
         time.sleep(5)
         
+def driver_heartbeat_worker(driver):
+
+    headers = {"Authorization": f"Bearer {driver['token']}"}
+
+    while True:
+        try:
+            r = requests.post(
+                f"{BASE_URL}/drivers/{driver['driverId']}/heartbeat",
+                headers=headers
+            )
+
+            if r.status_code == 200:
+                print("HEARTBEAT OK", driver["driverId"])
+            else:
+                print("HEARTBEAT FAILED", driver["driverId"], r.status_code, r.text)
+
+        except Exception as e:
+            print("HEARTBEAT ERROR", driver["driverId"], e)
+
+        time.sleep(10)
+        
 def passenger_worker(passenger):
     
     headers = {"Authorization": f"Bearer {passenger['token']}"}
     
     while True:
+
+        # throttle ride generation so simulator does not flood the system
+        if len(ride_queue) > 100:
+            time.sleep(5)
+            continue
         
         pickup_lat = BASE_LAT + random.uniform(-0.02, 0.02)
         pickup_lng = BASE_LNG + random.uniform(-0.02, 0.02)
@@ -207,9 +233,15 @@ def driver_accept_worker(driver):
             )
             
             if r.status_code == 200:
-                print("ACCEPTED: ",ride_id)
+                print("ACCEPTED: ", ride_id)
+
+                # remove the ride from queue once accepted so other drivers don't keep trying
+                try:
+                    ride_queue.remove(ride)
+                except ValueError:
+                    pass
             else:
-                print("RIDE ACCEPT FAILED: ",ride_id, r.status_code)
+                print("RIDE ACCEPT FAILED: ", ride_id, r.status_code)
                 
         time.sleep(random.randint(5,15))
         
@@ -222,6 +254,11 @@ def start():
     for driver in drivers:
         threading.Thread(
             target=driver_location_worker,
+            args=(driver,)
+        ).start()
+
+        threading.Thread(
+            target=driver_heartbeat_worker,
             args=(driver,)
         ).start()
         
