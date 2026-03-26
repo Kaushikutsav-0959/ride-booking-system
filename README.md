@@ -43,7 +43,7 @@ Frontend
 Simulation
 - Python Driver Simulator
 
-Infrastructure
+Infrastructure (Under planning)
 - Docker
 - Docker Compose
 
@@ -75,24 +75,6 @@ The simulator can generate **hundreds of passengers and drivers** to test the di
 
 ---
 
-## Running the System
-
-Start the full stack:
-
-```
-docker-compose up --build
-```
-
-Services started:
-
-- Backend API
-- Redis
-- Kafka
-- React Dashboard
-- Driver Simulator
-
----
-
 ## Simulator
 
 The driver simulator creates:
@@ -114,9 +96,14 @@ This project demonstrates:
 - Distributed ride dispatch architecture
 - Geospatial queries with Redis
 - Kafka event streaming
-- Containerized microservices using Docker
 
 ---
+
+Future Work:
+
+- Containerise backend service
+- Integrate full system into docker-compose
+- Add environment-based configs
 
 ## License
 
