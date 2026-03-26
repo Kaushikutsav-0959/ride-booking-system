@@ -1,110 +1,101 @@
-# Distributed Ride Booking System
+Distributed Ride Booking System
 
-A simplified **Uber-like ride dispatch system** built using event-driven architecture.
+A simplified Uber-like ride dispatch system built using an event-driven architecture.
 
 The system simulates passengers requesting rides and drivers accepting them using Redis geospatial queries and Kafka-based ride dispatch.
 
----
+⸻
 
-## Architecture (System Design Overview)
+Architecture Overview
+	1.	Passenger creates a ride request via Ride API
+	2.	Ride details are stored in Postgres
+	3.	Outbox pattern writes event to Kafka
+	4.	Kafka publishes ride request event
+	5.	Driver service consumes the event
+	6.	Redis GEO is used to find nearby drivers
+	7.	Driver assignment and acceptance flow is executed
 
-Passenger requests a ride → Ride Service publishes event → Kafka → Driver dispatch → Driver accepts ride.
+⸻
 
-```
-Passenger → Ride API → Postgres
-                ↓
-           Outbox Table
-                ↓
-         Kafka Event Stream
-                ↓
-      Redis GEO Driver Discovery
-                ↓
-        Driver Assignment Flow
-```
-
-Redis is used for fast driver proximity search.
-
-Kafka is used for ride event streaming and dispatch.
-
----
-
-## Tech Stack
+Tech Stack
 
 Backend
-- Java
-- Spring Boot
-- Redis GEO
-- Apache Kafka
+	•	Java
+	•	Spring Boot
+	•	PostgreSQL
+	•	Redis (GEO queries)
+	•	Apache Kafka
 
 Frontend
-- React
-- Leaflet.js (Map Rendering)
+	•	React
+	•	Leaflet.js (Map Rendering)
 
 Simulation
-- Python Driver Simulator
+	•	Python Driver Simulator
 
-Infrastructure (Under planning)
-- Docker
-- Docker Compose
+⸻
 
----
+Infrastructure
+	•	Kafka and Zookeeper are containerised using Docker Compose for local development
+	•	Backend service is currently run locally
+	•	Full system containerisation is planned
 
-## Project Structure
+⸻
 
-```
-ride-booking-system
-│
-├ ride-booking-app      # Spring Boot backend
-├ ride-dashboard        # React dashboard
-├ driver-simulator      # Python load simulator
-├ docker-compose.yml    # Infrastructure orchestration
-```
+Key Design Decisions
+	•	Kafka is used to decouple ride creation from driver assignment, enabling asynchronous processing and better scalability under high load
+	•	Outbox Pattern ensures reliable event publishing and prevents inconsistency between database and Kafka
+	•	Redis GEO enables efficient nearest-driver lookup with low latency compared to database-based queries
+	•	Driver simulator is used to stress test the dispatch system and observe system behavior under high traffic
 
----
+⸻
 
-## Features
+Features
+	•	Ride creation flow
+	•	Driver proximity discovery using Redis GEO
+	•	Event-driven ride dispatch using Kafka
+	•	Driver acceptance workflow
+	•	React dashboard for ride monitoring
+	•	Driver simulator generating high load traffic
 
-- Ride creation
-- Driver proximity discovery using Redis GEO
-- Event-driven ride dispatch using Kafka
-- Driver acceptance flow
-- React dashboard for ride monitoring
-- Driver simulator generating high load traffic
+⸻
 
-The simulator can generate **hundreds of passengers and drivers** to test the dispatch system.
+Simulator
 
----
+The driver simulator generates:
+	•	Passengers
+	•	Drivers
+	•	Ride requests
+	•	Driver acceptance events
 
-## Simulator
+This enables testing the system under concurrent load and observing dispatch behavior.
 
-The driver simulator creates:
+⸻
 
-- Passengers
-- Drivers
-- Ride requests
-- Driver acceptance
+Trade-offs
+	•	Kafka introduces eventual consistency in ride assignment
+	•	Redis requires continuous updates to maintain accurate driver locations
 
-This allows stress testing the dispatch pipeline.
+⸻
 
----
+Why This Project
 
-## Why This Project
+This project demonstrates practical implementation of distributed systems concepts:
+	•	Event-driven architecture using Kafka
+	•	Reliable event publishing using Outbox Pattern
+	•	Low-latency geospatial queries using Redis GEO
+	•	Handling high concurrency using simulation-based load testing
 
-This project demonstrates:
+⸻
 
-- Event-driven system design
-- Distributed ride dispatch architecture
-- Geospatial queries with Redis
-- Kafka event streaming
+Future Work
+	•	Containerise backend service
+	•	Integrate full system into Docker Compose
+	•	Add environment-based configuration
+	•	Improve fault tolerance and retry mechanisms
 
----
+⸻
 
-Future Work:
-
-- Containerise backend service
-- Integrate full system into docker-compose
-- Add environment-based configs
-
-## License
+License
 
 MIT License
