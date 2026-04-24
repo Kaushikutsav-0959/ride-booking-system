@@ -1,4 +1,4 @@
-Distributed Ride Booking System
+**Distributed Ride Booking System**
 
 A simplified Uber-like ride dispatch system built using an event-driven architecture.
 
@@ -6,93 +6,143 @@ The system simulates passengers requesting rides and drivers accepting them usin
 
 ⸻
 
-Architecture Overview
+**Architecture Overview**
+
 	1.	Passenger creates a ride request via Ride API
+	
 	2.	Ride details are stored in Postgres
+	
 	3.	Outbox pattern writes event to Kafka
+	
 	4.	Kafka publishes ride request event
+	
 	5.	Driver service consumes the event
+	
 	6.	Redis GEO is used to find nearby drivers
+	
 	7.	Driver assignment and acceptance flow is executed
 
 ⸻
 
-Tech Stack
+**Tech Stack**
 
-Backend
+**Backend**
+
 	•	Java
+	
 	•	Spring Boot
+	
 	•	PostgreSQL
+	
 	•	Redis (GEO queries)
+	
 	•	Apache Kafka
 
-Frontend
+**Frontend**
+
 	•	React
+	
 	•	Leaflet.js (Map Rendering)
 
-Simulation
+**Simulation / Load Testing**
+
 	•	Python Driver Simulator
 
 ⸻
 
-Infrastructure
+**Infrastructure**
+
 	•	Kafka and Zookeeper are containerised using Docker Compose for local development
+	
 	•	Backend service is currently run locally
+	
 	•	Full system containerisation is planned
 
 ⸻
 
-Key Design Decisions
+**Key Design Decisions**
+
 	•	Kafka is used to decouple ride creation from driver assignment, enabling asynchronous processing and better scalability under high load
+	
 	•	Outbox Pattern ensures reliable event publishing and prevents inconsistency between database and Kafka
+	
 	•	Redis GEO enables efficient nearest-driver lookup with low latency compared to database-based queries
+	
 	•	Driver simulator is used to stress test the dispatch system and observe system behavior under high traffic
+	
+	•	Use of Relational Database (PostgreSQL) in order to ensure consistency in the rides related data
 
 ⸻
 
-Features
+**Features**
+
 	•	Ride creation flow
+	
 	•	Driver proximity discovery using Redis GEO
+	
 	•	Event-driven ride dispatch using Kafka
+	
 	•	Driver acceptance workflow
+	
 	•	React dashboard for ride monitoring
+	
 	•	Driver simulator generating high load traffic
 
 ⸻
 
-Simulator
+**Simulator**
 
 The driver simulator generates:
+
 	•	Passengers
+	
 	•	Drivers
+	
 	•	Ride requests
+	
 	•	Driver acceptance events
 
-This enables testing the system under concurrent load and observing dispatch behavior.
+**Enables testing the system under concurrent load and observing dispatch behavior.**
 
 ⸻
 
-Trade-offs
+**Trade-offs**
+
 	•	Kafka introduces eventual consistency in ride assignment
+	
 	•	Redis requires continuous updates to maintain accurate driver locations
 
 ⸻
 
-Why This Project
+**Why This Project**
 
 This project demonstrates practical implementation of distributed systems concepts:
+
 	•	Event-driven architecture using Kafka
+	
 	•	Reliable event publishing using Outbox Pattern
+	
 	•	Low-latency geospatial queries using Redis GEO
+	
 	•	Handling high concurrency using simulation-based load testing
 
 ⸻
 
-Future Work
+**Ongoing / Future Work**
+
 	•	Containerise backend service
+	
 	•	Integrate full system into Docker Compose
+	
 	•	Add environment-based configuration
+	
 	•	Improve fault tolerance and retry mechanisms
+	
+	•	Add cache eviction policies ensuring timely removal of stale data
+	
+	•	Add health monitoring and logging via NoSQL (Mongo/ Dynamo) + OLAP and driver locations storage
+	
+	•	Add payment handling service
 
 ⸻
 
