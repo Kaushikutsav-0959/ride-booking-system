@@ -5,16 +5,17 @@ import threading
 
 BASE_URL = "http://localhost:8080"
 PASSWORD = "1234"
-TOTAL_DRIVERS = 250
-TOTAL_PASSENGERS = 250
-MAX_ACTIVE_RIDES = 200
-MAX_TOTAL_RIDES = 250
+TOTAL_DRIVERS = 100
+TOTAL_PASSENGERS = 100
+MAX_ACTIVE_RIDES = 100
 
-# deterministic buckets (ensure max 50 non-completed rides)
-TIMEOUT_BUCKET = 15
-CANCEL_BUCKET = 15
-REJECT_BUCKET = 20
-# remaining → ~200 complete
+MAX_TOTAL_RIDES = 100
+
+# deterministic buckets
+TIMEOUT_BUCKET = 10
+CANCEL_BUCKET = 10
+REJECT_BUCKET = 10
+# remaining → complete
 
 BASE_LAT = 12.9716
 BASE_LNG = 77.5946
@@ -230,8 +231,7 @@ def passenger_worker(passenger):
                     "rideId": ride_id,
                     "eligibleDrivers": eligible,
                     "status": "REQUESTED",
-                    "createdAt": time.time(),
-                    "retryCount": 0
+                    "createdAt": time.time()
                 })
                 active_rides.add(ride_id)
                 passenger_active_ride[passenger["userId"]] = ride_id
@@ -259,7 +259,7 @@ def driver_accept_worker(driver):
         ride = None
 
         # pick first REQUESTED ride safely (avoid multiple drivers grabbing same ride)
-        for r in random.sample(ride_queue, len(ride_queue)):
+        for r in ride_queue:
             if r.get("status") == "REQUESTED":
                 ride = r
                 break
@@ -283,28 +283,15 @@ def driver_accept_worker(driver):
         # 30% chance to reject instead of accept
         if ride.get("type") == "REJECT":
             print("REJECTED BY DRIVER:", ride_id)
-
-            r = requests.post(
-                f"{BASE_URL}/rides/{ride_id}/reject",
-                headers=headers
-            )
-
-            if r.status_code == 200:
-                print("REJECT SUCCESS:", ride_id)
-
-                # Keep ride alive → retry with another driver
-                ride["status"] = "REQUESTED"
-
-                # Optional: remove this driver from eligibility so it doesn't retry same driver
-                if ride.get("eligibleDrivers"):
-                    try:
-                        ride["eligibleDrivers"].remove(driver["driverId"])
-                    except:
-                        pass
-
-            else:
-                print("REJECT FAILED:", ride_id, r.status_code, r.text)
-
+            ride["status"] = "REJECTED"
+            try:
+                ride_queue.remove(ride)
+            except:
+                pass
+            active_rides.discard(ride_id)
+            for user_id, r_id in list(passenger_active_ride.items()):
+                if r_id == ride_id:
+                    del passenger_active_ride[user_id]
             time.sleep(2)
             continue
 
@@ -334,29 +321,14 @@ def ride_lifecycle_worker():
             created_at = ride.get("createdAt", time.time())
 
             try:
-                # retry logic for FAILED rides (only once)
-                if status == "FAILED" and ride.get("retryCount", 0) < 1:
-                    print(f"[SIM] Retrying ride {ride_id}")
-
-                    r = requests.post(f"{BASE_URL}/rides/{ride_id}/retry")
-
-                    if r.status_code == 200:
-                        ride["status"] = "REQUESTED"
-                        ride["retryCount"] = ride.get("retryCount", 0) + 1
-                        ride["createdAt"] = time.time()
-                        print(f"[SIM] RETRY SUCCESS: {ride_id}")
-                        continue
-                    else:
-                        print(f"[SIM] RETRY FAILED: {ride_id}", r.status_code, r.text)
-
                 # timeout logic (FAILED)
-                if status == "REQUESTED" and ride.get("type") == "TIMEOUT" and time.time() - created_at > 4:
+                if status == "REQUESTED" and ride.get("type") == "TIMEOUT" and time.time() - created_at > 5:
                     print(f"[SIM] Ride {ride_id} TIMED OUT → FAILED")
                     requests.post(
                         f"{BASE_URL}/rides/{ride_id}/fail"
                     )
                     ride["status"] = "FAILED"
-                    # keep ride for possible retry
+                    ride_queue.remove(ride)
                     active_rides.discard(ride_id)
                     # remove passenger mapping
                     for user_id, r_id in list(passenger_active_ride.items()):
@@ -365,7 +337,7 @@ def ride_lifecycle_worker():
                     continue
 
                 # simulate user cancellation (20%)
-                if status == "REQUESTED" and ride.get("type") == "CANCEL" and time.time() - created_at > 3:
+                if status == "REQUESTED" and ride.get("type") == "CANCEL":
                     print(f"[SIM] Ride {ride_id} CANCELLED BY USER")
                     requests.post(
                         f"{BASE_URL}/rides/{ride_id}/cancel"

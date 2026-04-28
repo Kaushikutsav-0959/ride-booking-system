@@ -21,7 +21,11 @@ public interface RideRepository extends JpaRepository<Ride, Long> {
 
     List<Ride> findByCustomerId(Long customerId);
 
-    Optional<Ride> findByDriverIdAndStatusIn(Long driverId, Collection<RideStatus> statuses);
+    List<Ride> findByCustomerIdAndStatusIn(Long customerId, Collection<RideStatus> statuses);
 
-    List<Ride> findByStatus(RideStatus status);
+    List<Ride> findByDriverIdAndStatusIn(Long driverId, Collection<RideStatus> statuses);
+
+    List<Ride> findByRideStatus(RideStatus status);
+
+    long countByRideStatus(RideStatus status);
 }

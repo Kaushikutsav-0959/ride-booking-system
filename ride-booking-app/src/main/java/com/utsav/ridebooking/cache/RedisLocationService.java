@@ -24,7 +24,7 @@ public class RedisLocationService {
 
     private static final String DRIVER_GEO_KEY = "drivers:geo";
     private static final String DRIVER_HEARTBEAT_KEY_PREFIX = "driver:heartbeat:";
-    private static final long HEARTBEAT_TTL_SECONDS = 30;
+    private static final long HEARTBEAT_TTL_SECONDS = 90;
     private static final String ELIGIBLE_DRIVERS_TEMPLATE = "ride:{rideId}:candidates";
     private static final long RIDE_ACCEPTANCE_TIMER = 60;
     private static final String RIDE_REQUEST_CHANNEL = "ride:requests";
@@ -98,9 +98,16 @@ public class RedisLocationService {
 
             java.util.List<String> heartbeats = stringRedisTemplate.opsForValue().multiGet(heartbeatKeys);
 
+            if (heartbeats == null || heartbeats.size() != radiusDriverIds.size()) {
+                System.out.println("HEARTBEAT MISMATCH: expected=" + radiusDriverIds.size() + " actual="
+                        + (heartbeats == null ? 0 : heartbeats.size()));
+            }
+
             for (int i = 0; i < radiusDriverIds.size(); i++) {
-                if (heartbeats != null && heartbeats.get(i) != null) {
+                if (heartbeats != null && i < heartbeats.size() && heartbeats.get(i) != null) {
                     driverIds.add(radiusDriverIds.get(i));
+                } else {
+                    System.out.println("DRIVER FILTERED (NO HEARTBEAT): " + radiusDriverIds.get(i));
                 }
             }
 
@@ -114,6 +121,7 @@ public class RedisLocationService {
         java.util.List<Long> result;
 
         if (driverIds.isEmpty()) {
+            System.out.println("NO ACTIVE DRIVERS WITH HEARTBEAT, FALLING BACK TO GEO MATCHED");
             result = new java.util.ArrayList<>(geoMatchedDrivers);
         } else {
             result = new java.util.ArrayList<>(driverIds);
@@ -214,5 +222,32 @@ public class RedisLocationService {
         }
 
         return locations;
+    }
+
+    public Point getDriverLocation(Long driverId) {
+        List<Point> points = stringRedisTemplate.opsForGeo().position(DRIVER_GEO_KEY, driverId.toString());
+        if (points == null || points.isEmpty())
+            return null;
+        return points.get(0);
+    }
+
+    public Double getDriverLatitude(Long driverId) {
+        Point p = getDriverLocation(driverId);
+        if (p == null)
+            return null;
+        return p.getY(); // latitude
+    }
+
+    public Double getDriverLongitude(Long driverId) {
+        Point p = getDriverLocation(driverId);
+        if (p == null)
+            return null;
+        return p.getX(); // longitude
+    }
+
+    public boolean isDriverAlive(Long driverId) {
+        String key = buildHeartbeatKey(driverId);
+        Boolean exists = stringRedisTemplate.hasKey(key);
+        return Boolean.TRUE.equals(exists);
     }
 }

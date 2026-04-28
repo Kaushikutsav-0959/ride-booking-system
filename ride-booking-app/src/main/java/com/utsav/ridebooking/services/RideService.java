@@ -74,6 +74,21 @@ public class RideService {
         Ride savedRide = rideRepository.save(ride);
         log.info("METRIC ride.created rideId={} customerId={}", savedRide.getId(), user.getUserId());
         publishRide(savedRide.getId());
+        // Start timeout watcher
+        new Thread(() -> {
+            try {
+                Thread.sleep(180000); // 3 minute timeout
+                Ride latestRide = rideRepository.findById(savedRide.getId()).orElse(null);
+                if (latestRide != null && latestRide.getRideStatus() == RideStatus.REQUESTED) {
+                    latestRide.setRideStatus(RideStatus.FAILED);
+                    latestRide.setUpdatedAt(LocalDateTime.now());
+                    rideRepository.save(latestRide);
+                    log.warn("Ride {} marked as FAILED due to no drivers.", latestRide.getId());
+                }
+            } catch (Exception e) {
+                log.error("Error in ride timeout watcher", e);
+            }
+        }).start();
         return savedRide;
     }
 
@@ -91,8 +106,7 @@ public class RideService {
         double radius = 2.0;
 
         List<Long> nearbyDriverIds = redisLocationService.fetchNearestDrivers(unassignedRide.getPickupLat(),
-                unassignedRide.getPickupLong(),
-                radius);
+                unassignedRide.getPickupLong(), radius);
 
         while (nearbyDriverIds.isEmpty() && radius < 9) {
             radius += 2;
@@ -120,7 +134,8 @@ public class RideService {
         redisLocationService.storeEligibleDrivers(rideId, eligibleDriverIds);
         log.info("Eligible drivers for ride {} = {}", rideId, eligibleDriverIds);
         if (eligibleDriverIds.isEmpty()) {
-            throw new RuntimeException("No eligible drivers available.");
+            log.warn("No eligible drivers found for rideId={}. Keeping ride in REQUESTED state.", rideId);
+            return unassignedRide;
         }
 
         RideEvent event = new RideEvent();
@@ -153,9 +168,36 @@ public class RideService {
         return unassignedRide;
     }
 
-    public Optional<Ride> getActiveRideForDriver(Long driverId) {
-        return rideRepository.findByDriverIdAndStatusIn(driverId,
-                EnumSet.of(RideStatus.ASSIGNED, RideStatus.IN_PROGRESS));
+    public List<Ride> getActiveRideForDriver(Long driverId) {
+        return rideRepository.findByDriverIdAndStatusIn(
+                driverId,
+                EnumSet.of(
+                        RideStatus.ASSIGNED,
+                        RideStatus.ARRIVED_AT_PICKUP,
+                        RideStatus.IN_PROGRESS));
+    }
+
+    public List<Ride> getActiveRideForCustomer(Long customerId) {
+        return rideRepository.findByCustomerIdAndStatusIn(
+                customerId,
+                EnumSet.of(RideStatus.REQUESTED, RideStatus.ASSIGNED, RideStatus.IN_PROGRESS));
+    }
+
+    public List<Ride> getAvailableRidesForDriver(Long driverId) {
+        // Fetch rides in REQUESTED state
+        List<Ride> requestedRides = rideRepository.findByRideStatus(RideStatus.REQUESTED);
+
+        List<Ride> availableRides = new ArrayList<>();
+
+        for (Ride ride : requestedRides) {
+            List<Long> eligibleDrivers = redisLocationService.getEligibleDrivers(ride.getId());
+
+            if (eligibleDrivers != null && eligibleDrivers.contains(driverId)) {
+                availableRides.add(ride);
+            }
+        }
+
+        return availableRides;
     }
 
     public List<Ride> getRidesForCustomers(Long customerId) {
@@ -165,7 +207,6 @@ public class RideService {
     @Transactional
     public Ride updateRideStatus(Long rideId, RideStatus status) {
         Ride ride = rideRepository.findById(rideId).orElseThrow(() -> new RuntimeException("Ride not found."));
-
         ride.setRideStatus(status);
         return rideRepository.save(ride);
     }
@@ -180,12 +221,10 @@ public class RideService {
                 .orElseThrow(() -> new RuntimeException("Ride not found."));
 
         log.debug("Current ride status for rideId={} status={}", rideId, ride.getRideStatus());
-
         List<Long> eligibleDrivers = redisLocationService.getEligibleDrivers(rideId);
-
         log.debug("Eligible drivers for rideId={} drivers={}", rideId, eligibleDrivers);
 
-        if (!eligibleDrivers.contains(driverId)) {
+        if (eligibleDrivers == null || !eligibleDrivers.contains(driverId)) {
             throw new RuntimeException("Driver not eligible for this ride.");
         }
 
@@ -275,6 +314,7 @@ public class RideService {
 
         redisLocationService.clearEligibleDriver(rideId, driverId);
         ride.setUpdatedAt(LocalDateTime.now());
+        ride.setRideStatus(RideStatus.REJECTED);
         rideRepository.save(ride);
         driverRepository.save(driver);
 
@@ -305,6 +345,9 @@ public class RideService {
     @Transactional
     public Ride completeRide(Long rideId) {
         Ride ride = rideRepository.findById(rideId).orElseThrow(() -> new RuntimeException("Ride not found."));
+        if (ride.getRideStatus() != RideStatus.IN_PROGRESS) {
+            throw new RuntimeException("Illegal state transition.");
+        }
         ride.setRideStatus(RideStatus.COMPLETED);
         log.info("METRIC ride.completed rideId={} driverId={}", rideId, ride.getDriverId());
         Driver driver = driverRepository.findById(ride.getDriverId())
@@ -335,7 +378,6 @@ public class RideService {
 
         outbox.setCreatedAt(LocalDateTime.now());
         outboxRepository.save(outbox);
-
         return ride;
     }
 
@@ -382,26 +424,67 @@ public class RideService {
     public Ride cancelRide(Long rideId) {
         Ride ride = rideRepository.findById(rideId).orElseThrow(() -> new RuntimeException("Ride was not found."));
         log.info("METRIC ride.cancel.attempt rideId={}", rideId);
-
         if (ride.getRideStatus() == RideStatus.IN_PROGRESS || ride.getRideStatus() == RideStatus.COMPLETED) {
             throw new RuntimeException("Ride cannot be cancelled at this stage.");
         }
-
         if (ride.getDriverId() != null) {
             Driver driver = driverRepository.findById(ride.getDriverId())
                     .orElseThrow(() -> new RuntimeException("Driver with the requested ID wasn't found."));
-
             if (driver.getDriverStatus() == DriverStatus.ON_RIDE) {
                 driver.setDriverStatus(DriverStatus.ONLINE);
                 driverRepository.save(driver);
             }
         }
-
         ride.setRideStatus(RideStatus.CANCELLED);
         log.info("METRIC ride.cancel.success rideId={}", rideId);
         redisLocationService.clearEligibleDrivers(rideId);
         redisLocationService.clearRideClaim(rideId);
         ride.setUpdatedAt(LocalDateTime.now());
         return rideRepository.save(ride);
+    }
+
+    @Transactional
+    public Ride retryRide(Long rideId) {
+        Ride ride = rideRepository.findById(rideId)
+                .orElseThrow(() -> new RuntimeException("Ride not found."));
+
+        if (ride.getRideStatus() != RideStatus.FAILED) {
+            throw new RuntimeException("Only FAILED rides can be retried.");
+        }
+
+        ride.setRideStatus(RideStatus.REQUESTED);
+        ride.setUpdatedAt(LocalDateTime.now());
+        rideRepository.save(ride);
+
+        log.info("Retrying ride {}", rideId);
+
+        publishRide(rideId);
+        return ride;
+    }
+
+    @Transactional
+    public Ride failRide(Long rideId) {
+        Ride ride = rideRepository.findById(rideId).orElseThrow(() -> new RuntimeException("Ride not found."));
+        if (ride.getRideStatus() != RideStatus.REQUESTED) {
+            throw new RuntimeException("Illegal state transition");
+        }
+        ride.setRideStatus(RideStatus.FAILED);
+        ride.setUpdatedAt(LocalDateTime.now());
+        rideRepository.save(ride);
+        log.info("Failed ride {}", rideId);
+        return ride;
+    }
+
+    public Ride getRideById(Long rideId) {
+        return rideRepository.findById(rideId).orElseThrow(() -> new RuntimeException("Ride not found."));
+    }
+
+    public List<Ride> getActiveRideForCustomerByEmail(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        return rideRepository.findByCustomerIdAndStatusIn(
+                user.getUserId(),
+                List.of(RideStatus.REQUESTED, RideStatus.ASSIGNED, RideStatus.IN_PROGRESS));
     }
 }

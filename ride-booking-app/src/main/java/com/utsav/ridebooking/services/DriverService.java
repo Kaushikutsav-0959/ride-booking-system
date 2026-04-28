@@ -123,4 +123,58 @@ public class DriverService {
                         driver.getCurrentLong()))
                 .toList();
     }
+
+    @Transactional
+    public void refreshHeartbeat() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String email = (String) authentication.getPrincipal();
+        Driver driver = driverRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Driver not found."));
+        redisLocationService.refreshDriverHeartbeat(driver.getDriverId());
+        log.debug("Heartbeat refreshed for driverId={}", driver.getDriverId());
+    }
+
+    public List<Map<String, Object>> getAllDriverLocations() {
+        List<Long> driverIds = driverRepository.findAll()
+                .stream()
+                .map(Driver::getDriverId)
+                .toList();
+
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+
+        for (Long driverId : driverIds) {
+            Double lat = redisLocationService.getDriverLatitude(driverId);
+            Double lng = redisLocationService.getDriverLongitude(driverId);
+
+            if (lat != null && lng != null) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("driverId", driverId);
+                data.put("lat", lat);
+                data.put("lng", lng);
+                result.add(data);
+            }
+        }
+
+        return result;
+    }
+
+    public List<Map<String, Object>> getAllDriverHeartbeats() {
+        List<Long> driverIds = driverRepository.findAll()
+                .stream()
+                .map(Driver::getDriverId)
+                .toList();
+
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+
+        for (Long driverId : driverIds) {
+            boolean isAlive = redisLocationService.isDriverAlive(driverId);
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("driverId", driverId);
+            data.put("alive", isAlive);
+            result.add(data);
+        }
+
+        return result;
+    }
 }
